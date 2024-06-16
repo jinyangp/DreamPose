@@ -15,6 +15,35 @@ import torch, cv2
 import torch.nn.functional as F
 from models.unet_dual_encoder import get_unet, Embedding_Adapter
 
+# NOTE:
+
+'''
+Sample command provided:    
+python test.py --epoch 499 --folder demo/custom-chkpts --pose_folder demo/sample/poses  --key_frame_path demo/sample/key_frame.png --s1 8 --s2 3 \
+    --n_steps 100 --output_dir demo/sample/results --custom_vae demo/custom-chkpts/vae_1499.pth
+
+# TODO: Investigate if the poses have to be in a npy file containing the UV map of the pose and cannot
+simply be a PNG file
+
+Summary of where each input goes to:
+- Place all the dense pose UV maps to the demo/sample/poses directory under the --pose_folder argument
+- Place the target image under the demo/sample/key_frame.png filepath under the --key_frame_path argument 
+
+STEP: To get predictions on multiple pose, run the following command.
+
+Function to call: srun -p rtx3090_slab -n 1 --job-name=test-run-dreampose-1-pose --kill-on-bad-exit=1 python3 /mnt/slurm_home/jypeh/jypeh/code/DreamPose/test.py --epoch 499 --folder demo/sample/custom-chkpts --pose
+_folder demo/sample/poses --key_frame_path demo/sample/key_frame.png --s1 8 --s2 3 --n_steps 100 --output_dir dem
+o/sample/results --custom_vae demo/sample/custom-chkpts/vae_1499.pth
+
+STEP: To get predictions on one poses,
+
+To get single image prediction, simply put in 1 dense pose UV map in the demo/sample/poses under the --pose_folder argument.
+
+Function to call: srun -p rtx3090_slab -n 1 --job-name=test-run-dreampose-1-pose --kill-on-bad-exit=1 python3 /mnt/slurm_home/jypeh/jypeh/code/DreamPose/test.py --epoch 499 --folder demo/sample/custom-chkpts --pose
+_folder demo/sample/one_pose_dir --key_frame_path demo/sample/key_frame.png --s1 8 --s2 3 --n_steps 100 --output_dir dem
+o/sample/results_1_pose --custom_vae demo/sample/custom-chkpts/vae_1499.pth
+'''
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--folder", default='dreampose-1', help="Path to custom pretrained checkpoints folder.",)
 parser.add_argument("--pose_folder", default='../UBC_Fashion_Dataset/valid/91iZ9x8NI0S.mp4', help="Path to test frames, poses, and joints.",)
@@ -84,6 +113,24 @@ if args.custom_vae is not None:
     for k, v in vae_state_dict.items():
         name = k.replace('module.', '')  #name = k[7:] if k[:7] == 'module' else k 
         new_state_dict[name] = v
+
+    # modify the keys to load the model.
+    keys = list(new_state_dict.keys())
+    for k in keys:
+        if "query" in k:
+            new_k = k.replace("query", "to_q")
+            new_state_dict[new_k] = new_state_dict.pop(k)
+        elif "key" in k:
+            new_k = k.replace("key", "to_k")
+            new_state_dict[new_k] = new_state_dict.pop(k)
+        elif "value" in k:
+            new_k = k.replace("value", "to_v")
+            new_state_dict[new_k] = new_state_dict.pop(k)
+        elif "proj_attn" in k:
+            new_k = k.replace("proj_attn", "to_out.0")
+            new_state_dict[new_k] = new_state_dict.pop(k)
+
+
     pipe.vae.load_state_dict(new_state_dict)
     pipe.vae = pipe.vae.cuda()
 
